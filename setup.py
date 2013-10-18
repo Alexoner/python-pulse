@@ -13,11 +13,6 @@ pulseaudio_mod = Extension('pulseaudio',
                 sources = ['mainloop.c'],
                 extra_compile_args= ['-Wall'])
 
-deepin_pulseaudio_small_mod = Extension('deepin_pulseaudio_small',
-                include_dirs = pkg_config_cflags(['glib-2.0']),
-                libraries = ['pulse', 'pulse-mainloop-glib'],
-                sources = ['deepin_pulseaudio_small.c'],
-                extra_compile_args= ['-Wall'])
 
 setup(name='pypa',
       version='0.1',
