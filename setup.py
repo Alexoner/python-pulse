@@ -14,15 +14,15 @@ pulseaudio_mod = Extension('pulseaudio',
                 extra_compile_args= ['-Wall'])
 
 
-setup(name='pypa',
+setup(name='python-pulse',
       version='0.1',
       ext_modules = [pulseaudio_mod],
       description='PulseAudio Python binding.',
       long_description ="""PulseAudio Python binding.""",
       author='',
-      author_email='',
+      author_email='onerhao@gmail.com',
       license='GPL-3',
       url="",
-      download_url="",
+      download_url="git@github.com:Alexoner/python-pulse.git",
       platforms = ['Linux'],
       )
