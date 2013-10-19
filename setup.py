@@ -10,8 +10,8 @@ def pkg_config_cflags(pkgs):
 pulseaudio_mod = Extension('pulseaudio',
                 include_dirs = pkg_config_cflags(['glib-2.0']),
                 libraries = ['pulse'],
-                sources = ['mainloop.c'])#,
-                #extra_compile_args= ['-Wall'])
+                sources = ['mainloop.c'],
+				extra_compile_args= ['-g'])
 
 
 setup(name='python-pulse',
