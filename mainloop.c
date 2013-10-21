@@ -88,16 +88,16 @@ static int pa_clear(pa *self)
 {
     PyObject *tmp;
 
-	if(self->pa_op)
-	{
-		pa_operation_unref(self->pa_op);
-		self->pa_op=NULL;
-	}
+    if(self->pa_op)
+    {
+        pa_operation_unref(self->pa_op);
+        self->pa_op=NULL;
+    }
 
     if(self->pa_ctx)
     {
         pa_context_disconnect(self->pa_ctx);
-		pa_context_unref(self->pa_ctx);
+        pa_context_unref(self->pa_ctx);
         self->pa_ctx=NULL;
     }
 
@@ -111,11 +111,11 @@ static int pa_clear(pa *self)
 
     DECREF(self->server_info,tmp);
     DECREF(self->cards,tmp);
-	DECREF(self->sinks,tmp);
-	DECREF(self->sources,tmp);
-	DECREF(self->clients,tmp);
-	DECREF(self->sink_inputs,tmp);
-	DECREF(self->source_outputs,tmp);
+    DECREF(self->sinks,tmp);
+    DECREF(self->sources,tmp);
+    DECREF(self->clients,tmp);
+    DECREF(self->sink_inputs,tmp);
+    DECREF(self->source_outputs,tmp);
     DECREF(self->input_ports,tmp);
     DECREF(self->output_ports,tmp);
     return 0;
@@ -125,7 +125,7 @@ static void pa_dealloc(pa *self)
 {
     pa_clear(self);
     self->ob_type->tp_free((PyObject*)self);
-	fprintf(stderr,"object deleted\n");
+    fprintf(stderr,"object deleted\n");
     return;
 }
 
@@ -141,7 +141,7 @@ static PyObject * pa_new(PyTypeObject *type,PyObject *args,PyObject *kwds)
         self->pa_op=NULL;
 
 
-		DICT_NEW(self->dict);
+        DICT_NEW(self->dict);
         DICT_NEW(self->server_info);
         DICT_NEW(self->cards);
         LIST_NEW(self->sinks);
@@ -163,8 +163,8 @@ static PyObject * pa_new(PyTypeObject *type,PyObject *args,PyObject *kwds)
 
 static int pa_init(pa *self,PyObject *args,PyObject *kwds)
 {
-	//init function can be called multiple times,extra caution
-	//with assigning the new values.
+    //init function can be called multiple times,extra caution
+    //with assigning the new values.
 
 
     /*PyObject *server_info=NULL,*card=NULL,*tmp;
@@ -178,10 +178,24 @@ static int pa_init(pa *self,PyObject *args,PyObject *kwds)
     }
     */
 
-	if(self->pa_ml)
-	{//to reassign,free first
-		pa_mainloop_free(self->pa_ml);
+	if(self->pa_op)
+	{
+		pa_operation_unref(self->pa_op);
+		self->pa_op=NULL;
 	}
+	if(self->pa_ctx)
+	{
+		pa_context_disconnect(self->pa_ctx);
+		pa_context_unref(self->pa_ctx);
+		self->pa_ctx=NULL;
+	}
+	if(self->pa_ml)
+    {
+        //to reassign,free first
+        pa_mainloop_free(self->pa_ml);
+		self->pa_ml=NULL;
+    }
+
     self->pa_ml=pa_mainloop_new();
     if(!self->pa_ml)
     {
@@ -197,11 +211,11 @@ static int pa_init(pa *self,PyObject *args,PyObject *kwds)
     }
 
     self->pa_ctx=pa_context_new(self->pa_mlapi,"python-pulseaudio");
-	if(!self->pa_ctx)
-	{
-		perror("pa_context_new()");
-		return -1;
-	}
+    if(!self->pa_ctx)
+    {
+        perror("pa_context_new()");
+        return -1;
+    }
 
     printf( "Object initialized\n");
     return 0;
@@ -252,100 +266,244 @@ typedef struct pa_devicelist
     char description[256];
 } pa_devicelist_t;
 
-
+static PyObject *pa_init_context(pa *self);
+static PyObject *pa_get_server_info(pa *self);
 static PyObject *pa_get_card_list(pa *self);
 static PyObject *pa_get_device_list(pa *self);
 static PyObject *pa_get_client_list(pa *self);
 static PyObject *pa_get_sink_input_list(pa *self);
 static PyObject *pa_get_source_output_list(pa *self);
 static PyObject *pa_set_sink_input_mute(pa *self,PyObject *args);
+static PyObject* pa_get_sink_input_index_by_pid(pa *self,PyObject *args);
+static PyObject* pa_set_sink_input_mute_by_pid(pa *self,PyObject *args);
+
+void pa_state_cb(pa_context *c,void *userdata);
+void pa_serverinfo_cb(pa_context *c, const pa_server_info*i, void *userdata);
+void pa_sinklist_cb(pa_context *c, const pa_sink_info *l, int eol, void *userdata);
+void pa_sourcelist_cb(pa_context *c, const pa_source_info *l,
+                      int eol, void *userdata);
+void pa_clientlist_cb(pa_context *c, const pa_client_info*i,
+                      int eol, void *userdata);
+void pa_sink_input_cb(pa_context *c,const pa_sink_input_info *i,
+                      int eol,void *userdata);
+void pa_source_output_cb(pa_context *c, const pa_source_output_info *i,
+                         int eol, void *userdata);
+void pa_cards_cb(pa_context *c, const pa_card_info*i, int eol, void *userdata);
+
+void pa_set_sink_input_mute_cb(pa_context *c,int success,void *userdata);
+
+//utils
+PyObject *pa_dict_from_cvolume(pa_cvolume *c);
+
+
 
 
 
 static PyMethodDef pa_methods[]=
 {
-	{"get_cards",(PyCFunction)pa_get_card_list,METH_VARARGS,
-		"return the information about all the cards."},
-	{"get_devicelist",(PyCFunction)pa_get_device_list,METH_VARARGS,
-		"Return lists of sinks and sources"
+	{
+		"get_server_info",(PyCFunction)pa_get_server_info,METH_VARARGS,
+		"get the server information."
 	},
-	{"get_clients",(PyCFunction)pa_get_client_list,METH_VARARGS,
-		"return the list of clients"},
-	{"get_sink_inputs",(PyCFunction)pa_get_sink_input_list,METH_VARARGS,
-		"return the list of sink inputs."},
-	{"get_source_outputs",(PyCFunction)pa_get_source_output_list,METH_VARARGS,
-		"return the list of source outputs."},
-	{"set_sink_input_mute",(PyCFunction)pa_set_sink_input_mute,METH_VARARGS,
-		"set or unset the sink input mute."},
-	{NULL}  /* Sentinel */
+    {
+        "get_cards",(PyCFunction)pa_get_card_list,METH_VARARGS,
+        "return the information about all the cards."
+    },
+    {
+        "get_devicelist",(PyCFunction)pa_get_device_list,METH_VARARGS,
+        "Return lists of sinks and sources"
+    },
+    {
+        "get_clients",(PyCFunction)pa_get_client_list,METH_VARARGS,
+        "return the list of clients"
+    },
+    {
+        "get_sink_inputs",(PyCFunction)pa_get_sink_input_list,METH_VARARGS,
+        "return the list of sink inputs."
+    },
+    {
+        "get_source_outputs",(PyCFunction)pa_get_source_output_list,METH_VARARGS,
+        "return the list of source outputs."
+    },
+    {
+        "set_sink_input_mute",(PyCFunction)pa_set_sink_input_mute,METH_VARARGS,
+        "set or unset the sink input mute."
+    },
+	{
+		"get_sink_input_index_by_pid",(PyCFunction)pa_get_sink_input_index_by_pid,METH_VARARGS,
+		"get a sink input's index by its process id"
+	},
+	{
+		"set_sink_input_mute_by_pid",(PyCFunction)pa_set_sink_input_mute_by_pid,METH_VARARGS,
+		"set a sink input mute by pid"
+	},
+    {NULL}  /* Sentinel */
 };
 
 static PyMethodDef module_methods[]=
 {
-	{NULL}  /* Sentinel */
+    {NULL}  /* Sentinel */
 };
 
+static PyObject *pa_init_context(pa *self)
+{
+	if(self->pa_op)
+	{
+		pa_operation_unref(self->pa_op);
+		self->pa_op=NULL;
+	}
+	if(self->pa_ctx)
+	{
+		pa_context_disconnect(self->pa_ctx);
+		pa_context_unref(self->pa_ctx);
+		self->pa_ctx=NULL;
+	}
+	if(self->pa_ml)
+    {
+        pa_mainloop_free(self->pa_ml);
+		self->pa_ml=NULL;
+    }
+    self->pa_ml=pa_mainloop_new();
+    if(!self->pa_ml)
+    {
+        perror("pa_mainloop_new()");
+        return -1;
+    }
 
+    self->pa_mlapi=pa_mainloop_get_api(self->pa_ml);
+    if(!self->pa_mlapi)
+    {
+        perror("pa_mainloop_get_api()");
+        return -1;
+    }
 
-void pa_state_cb(pa_context *c,void *userdata);
-void pa_sinklist_cb(pa_context *c, const pa_sink_info *l,
-		int eol, void *userdata);
-void pa_sourcelist_cb(pa_context *c, const pa_source_info *l,
-		int eol, void *userdata);
-void pa_clientlist_cb(pa_context *c, const pa_client_info*i,
-		int eol, void *userdata);
-void pa_sink_input_cb(pa_context *c,const pa_sink_input_info *i,
-		int eol,void *userdata);
-void pa_source_output_cb(pa_context *c, const pa_source_output_info *i,
-		int eol, void *userdata);
-void pa_cards_cb(pa_context *c, const pa_card_info*i, int eol, void *userdata);
+    self->pa_ctx=pa_context_new(self->pa_mlapi,"python-pulseaudio");
+    if(!self->pa_ctx)
+    {
+        perror("pa_context_new()");
+        return Py_BuildValue("i",-1);
+    }
 
-int pa_get_sink_input();
-void pa_set_sink_input_mute_cb(pa_context *c,int success,void *userdata);
-//int pa_set_sink_input_mute(int pid,int mute);
+	return Py_BuildValue("i",0);
+}
 
-static PyObject *pa_get_card_list(pa *self)
+static PyObject *pa_get_server_info(pa *self)
 {
     int pa_ready = 0;
     int state = 0;
-	PyObject *tmp=NULL;
 
-	DECREF(self->cards,tmp);
-	LIST_NEW(self->cards);
+	if(self->server_info)
+	{
+		PyDict_Clear(self->server_info);
+	}
+	else
+	{
+		self->server_info=PyDict_New();
+	}
 
     pa_context_connect(self->pa_ctx, NULL, 0, NULL);
     pa_context_set_state_callback(self->pa_ctx, pa_state_cb, &pa_ready);
 
     for (;;)
-	{
+    {
         if (pa_ready == 0)
-		{
-            pa_mainloop_iterate(self->pa_ml, 1, NULL);
+        {
+            pa_mainloop_iterate(self->pa_ml, 0, NULL);
             continue;
         }
         if (pa_ready == 2)
-		{
+        {
             pa_context_disconnect(self->pa_ctx);
+            pa_context_unref(self->pa_ctx);
+            pa_mainloop_free(self->pa_ml);
+            self->pa_ctx=NULL;
+            self->pa_mlapi=NULL;
+            self->pa_ml=NULL;
             return Py_BuildValue("i",-1);
         }
         switch (state)
-		{
-            case 0:
-                self->pa_op = pa_context_get_card_info_list(self->pa_ctx, pa_cards_cb, self);
-                state++;
-                break;
-            case 1:
-                if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
-				{
-                    pa_operation_unref(self->pa_op);
-					self->pa_op=NULL;
-                    pa_context_disconnect(self->pa_ctx);
-                    return Py_BuildValue("i",0);
-                }
-                break;
-            default:
-                fprintf(stderr, "in state %d\n", state);
-                return Py_BuildValue("i",-1);
+        {
+        case 0:
+            self->pa_op = pa_context_get_server_info(self->pa_ctx, pa_serverinfo_cb, self);
+            state++;
+            break;
+        case 1:
+            if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
+            {
+                pa_operation_unref(self->pa_op);
+                pa_context_disconnect(self->pa_ctx);
+                pa_context_unref(self->pa_ctx);
+                pa_mainloop_free(self->pa_ml);
+                self->pa_op=NULL;
+                self->pa_ctx=NULL;
+                self->pa_mlapi=NULL;
+                self->pa_ml=NULL;
+				pa_init_context(self);
+				return Py_BuildValue("i",0);
+            }
+            break;
+        default:
+            fprintf(stderr, "in state %d\n", state);
+            return Py_BuildValue("i",-1);
+        }
+        pa_mainloop_iterate(self->pa_ml, 1, NULL);
+    }
+    return Py_BuildValue("i",0);
+}
+
+static PyObject *pa_get_card_list(pa *self)
+{
+    int pa_ready = 0;
+    int state = 0;
+    PyObject *tmp=NULL;
+
+    DECREF(self->cards,tmp);
+    LIST_NEW(self->cards);
+
+    pa_context_connect(self->pa_ctx, NULL, 0, NULL);
+    pa_context_set_state_callback(self->pa_ctx, pa_state_cb, &pa_ready);
+
+    for (;;)
+    {
+        if (pa_ready == 0)
+        {
+            pa_mainloop_iterate(self->pa_ml, 0, NULL);
+            continue;
+        }
+        if (pa_ready == 2)
+        {
+            pa_context_disconnect(self->pa_ctx);
+            pa_context_unref(self->pa_ctx);
+            pa_mainloop_free(self->pa_ml);
+            self->pa_ctx=NULL;
+            self->pa_mlapi=NULL;
+            self->pa_ml=NULL;
+            return Py_BuildValue("i",-1);
+        }
+        switch (state)
+        {
+        case 0:
+            self->pa_op = pa_context_get_card_info_list(self->pa_ctx, pa_cards_cb, self);
+            state++;
+            break;
+        case 1:
+            if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
+            {
+                pa_operation_unref(self->pa_op);
+                pa_context_disconnect(self->pa_ctx);
+                pa_context_unref(self->pa_ctx);
+                pa_mainloop_free(self->pa_ml);
+                self->pa_op=NULL;
+                self->pa_ctx=NULL;
+                self->pa_mlapi=NULL;
+                self->pa_ml=NULL;
+				pa_init_context(self);
+				return Py_BuildValue("i",0);
+            }
+            break;
+        default:
+            fprintf(stderr, "in state %d\n", state);
+            return Py_BuildValue("i",-1);
         }
         pa_mainloop_iterate(self->pa_ml, 1, NULL);
     }
@@ -357,14 +515,14 @@ static PyObject *pa_get_device_list(pa *self)
     // We'll need these state variables to keep track of our requests
     int state = 0;
     int pa_ready = 0;
-	PyObject *tmp=self->sinks;
+    PyObject *tmp=self->sinks;
 
-	DECREF(self->sinks,tmp);
-	LIST_NEW(self->sinks);
-	DECREF(self->sources,tmp);
-	LIST_NEW(self->sources);
+    DECREF(self->sinks,tmp);
+    LIST_NEW(self->sinks);
+    DECREF(self->sources,tmp);
+    LIST_NEW(self->sources);
 
-	fprintf(stderr,"before connection\n");
+    fprintf(stderr,"before connection\n");
 
     // This function connects to the pulse server
     pa_context_connect(self->pa_ctx, NULL, 0, NULL);
@@ -393,6 +551,12 @@ static PyObject *pa_get_device_list(pa *self)
             pa_context_disconnect(self->pa_ctx);
             //pa_context_unref(self->pa_ctx);
             //pa_mainloop_free(self->pa_ml);
+            pa_context_unref(self->pa_ctx);
+            pa_mainloop_free(self->pa_ml);
+            self->pa_op=NULL;
+            self->pa_ctx=NULL;
+            self->pa_mlapi=NULL;
+            self->pa_ml=NULL;
 
             Py_INCREF(Py_False);
             return Py_False;
@@ -411,7 +575,7 @@ static PyObject *pa_get_device_list(pa *self)
             // pa_op variable
             self->pa_op = pa_context_get_sink_info_list(self->pa_ctx,
                           pa_sinklist_cb,
-						  self);
+                          self);
             // Update state for next iteration through the loop
             state++;
             break;
@@ -428,7 +592,7 @@ static PyObject *pa_get_device_list(pa *self)
                 // a pointer to our input structure
                 self->pa_op = pa_context_get_source_info_list(self->pa_ctx,
                               pa_sourcelist_cb,
-							  self);
+                              self);
                 // Update the state so we know what to do next
                 state++;
             }
@@ -438,12 +602,16 @@ static PyObject *pa_get_device_list(pa *self)
             {
                 // Now we're done, clean up and disconnect and return
                 pa_operation_unref(self->pa_op);
-				self->pa_op=NULL;
                 pa_context_disconnect(self->pa_ctx);
-                //pa_context_unref(self->pa_ctx);
-                //pa_mainloop_free(self->pa_ml);
-				Py_INCREF(Py_True);
-				return Py_True;
+                pa_context_unref(self->pa_ctx);
+                pa_mainloop_free(self->pa_ml);
+                self->pa_op=NULL;
+                self->pa_ctx=NULL;
+                self->pa_mlapi=NULL;
+                self->pa_ml=NULL;
+				pa_init_context(self);
+                Py_INCREF(Py_True);
+                return Py_True;
             }
             break;
         default:
@@ -467,10 +635,10 @@ static PyObject *pa_get_client_list(pa *self)
     // We'll need these state variables to keep track of our requests
     int state = 0;
     int pa_ready = 0;
-	PyObject *tmp=NULL;
+    PyObject *tmp=NULL;
 
-	DECREF(self->clients,tmp);
-	LIST_NEW(self->clients);
+    DECREF(self->clients,tmp);
+    LIST_NEW(self->clients);
 
 
     // This function connects to the pulse server
@@ -498,6 +666,10 @@ static PyObject *pa_get_client_list(pa *self)
         if (pa_ready == 2)
         {
             pa_context_disconnect(self->pa_ctx);
+            self->pa_op=NULL;
+            self->pa_ctx=NULL;
+            self->pa_mlapi=NULL;
+            self->pa_ml=NULL;
 
             Py_INCREF(Py_False);
             return Py_False;
@@ -516,24 +688,29 @@ static PyObject *pa_get_client_list(pa *self)
             // pa_op variable
             self->pa_op = pa_context_get_client_info_list(self->pa_ctx,
                           pa_clientlist_cb,
-						  self);
+                          self);
             // Update state for next iteration through the loop
             state++;
             break;
         case 1:
-			if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
+            if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
             {
                 // Now we're done, clean up and disconnect and return
                 pa_operation_unref(self->pa_op);
-				self->pa_op=NULL;
+                self->pa_op=NULL;
                 pa_context_disconnect(self->pa_ctx);
+                self->pa_op=NULL;
+                self->pa_ctx=NULL;
+                self->pa_mlapi=NULL;
+                self->pa_ml=NULL;
+				pa_init_context(self);
                 //pa_context_unref(self->pa_ctx);
                 //pa_mainloop_free(self->pa_ml);
-				Py_INCREF(Py_True);
-				return Py_True;
+                Py_INCREF(Py_True);
+                return Py_True;
             }
             break;
-		default:
+        default:
             // We should never see this state
             fprintf(stderr, "in state %d\n", state);
             Py_INCREF(Py_True);
@@ -553,86 +730,114 @@ static PyObject *pa_get_sink_input_list(pa *self)
 {
     int pa_ready = 0;
     int state = 0;
-	PyObject *tmp=NULL;
+    PyObject *tmp=NULL;
 
-	DECREF(self->sink_inputs,tmp);
-	LIST_NEW(self->sink_inputs);
+    DECREF(self->sink_inputs,tmp);
+    LIST_NEW(self->sink_inputs);
 
     pa_context_connect(self->pa_ctx, NULL, 0, NULL);
     pa_context_set_state_callback(self->pa_ctx, pa_state_cb, &pa_ready);
 
-    for (;;) {
-        if (pa_ready == 0) {
+    for (;;)
+    {
+        if (pa_ready == 0)
+        {
             pa_mainloop_iterate(self->pa_ml, 1, NULL);
             continue;
         }
-        if (pa_ready == 2) {
+        if (pa_ready == 2)
+        {
             pa_context_disconnect(self->pa_ctx);
-			Py_INCREF(Py_False);
-			return Py_False;
+            self->pa_op=NULL;
+            self->pa_ctx=NULL;
+            self->pa_mlapi=NULL;
+            self->pa_ml=NULL;
+            Py_INCREF(Py_False);
+            return Py_False;
         }
-        switch (state) {
-            case 0:
-                self->pa_op = pa_context_get_sink_input_info_list(self->pa_ctx, pa_sink_input_cb, self);
-                state++;
-                break;
-            case 1:
-                if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE) {
-                    pa_operation_unref(self->pa_op);
-					self->pa_op=NULL;
-                    pa_context_disconnect(self->pa_ctx);
-					Py_INCREF(Py_True);
-					return Py_True;
-                }
-                break;
-            default:
-                fprintf(stderr, "in state %d\n", state);
+        switch (state)
+        {
+        case 0:
+            self->pa_op = pa_context_get_sink_input_info_list(self->pa_ctx, pa_sink_input_cb, self);
+            state++;
+            break;
+        case 1:
+            if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
+            {
+                pa_operation_unref(self->pa_op);
+                self->pa_op=NULL;
+                pa_context_disconnect(self->pa_ctx);
+ 				self->pa_op=NULL;
+				self->pa_ctx=NULL;
+				self->pa_mlapi=NULL;
+				self->pa_ml=NULL;
+				pa_init_context(self);
 				Py_INCREF(Py_True);
 				return Py_True;
+			}
+				break;
+        default:
+            fprintf(stderr, "in state %d\n", state);
+            Py_INCREF(Py_True);
+            return Py_True;
         }
         pa_mainloop_iterate(self->pa_ml, 1, NULL);
     }
-	Py_INCREF(Py_True);
-	return Py_True;
+    Py_INCREF(Py_True);
+    return Py_True;
 }
 
 static PyObject *pa_get_source_output_list(pa *self)
 {
     int pa_ready = 0;
     int state = 0;
-	PyObject *tmp=NULL;
+    PyObject *tmp=NULL;
 
-	DECREF(self->sink_inputs,tmp);
-	LIST_NEW(self->sink_inputs);
+    DECREF(self->sink_inputs,tmp);
+    LIST_NEW(self->sink_inputs);
 
     pa_context_connect(self->pa_ctx, NULL, 0, NULL);
     pa_context_set_state_callback(self->pa_ctx, pa_state_cb, &pa_ready);
 
-    for (;;) {
-        if (pa_ready == 0) {
+    for (;;)
+    {
+        if (pa_ready == 0)
+        {
             pa_mainloop_iterate(self->pa_ml, 1, NULL);
             continue;
         }
-        if (pa_ready == 2) {
+        if (pa_ready == 2)
+        {
             pa_context_disconnect(self->pa_ctx);
-            return Py_BuildValue("i",-1);
+ 				self->pa_op=NULL;
+				self->pa_ctx=NULL;
+				self->pa_mlapi=NULL;
+				self->pa_ml=NULL;
+           return Py_BuildValue("i",-1);
         }
-        switch (state) {
-            case 0:
-                self->pa_op = pa_context_get_source_output_info_list(self->pa_ctx, pa_source_output_cb, self);
-                state++;
-                break;
-            case 1:
-                if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE) {
-                    pa_operation_unref(self->pa_op);
-					self->pa_op=NULL;
-                    pa_context_disconnect(self->pa_ctx);
-                    return Py_BuildValue("i",0);
-                }
-                break;
-            default:
-                fprintf(stderr, "in state %d\n", state);
-                return Py_BuildValue("i",-1);
+        switch (state)
+        {
+        case 0:
+            self->pa_op = pa_context_get_source_output_info_list(self->pa_ctx, pa_source_output_cb, self);
+            state++;
+            break;
+        case 1:
+            if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
+            {
+                pa_operation_unref(self->pa_op);
+                self->pa_op=NULL;
+                pa_context_disconnect(self->pa_ctx);
+ 				self->pa_op=NULL;
+				self->pa_ctx=NULL;
+				self->pa_mlapi=NULL;
+				self->pa_ml=NULL;
+				pa_init_context(self);
+				return Py_BuildValue("i",0);
+            }
+            break;
+        default:
+            fprintf(stderr, "in state %d\n", state);
+            return Py_BuildValue("i",-1);
         }
         pa_mainloop_iterate(self->pa_ml, 1, NULL);
     }
@@ -647,7 +852,7 @@ static PyObject* pa_set_sink_input_mute(pa *self,PyObject *args)
 
     if(!PyArg_ParseTuple(args,"ii",&index,&mute))
     {
-		fprintf(stderr,"sink input index and mute flag are needed\n");
+        fprintf(stderr,"sink input index and mute flag are needed\n");
         return NULL;
     }
 
@@ -664,7 +869,11 @@ static PyObject* pa_set_sink_input_mute(pa *self,PyObject *args)
         if (pa_ready == 2)
         {
             pa_context_disconnect(self->pa_ctx);
-            return Py_BuildValue("i",-1);
+ 				self->pa_op=NULL;
+				self->pa_ctx=NULL;
+				self->pa_mlapi=NULL;
+				self->pa_ml=NULL;
+			return Py_BuildValue("i",-1);
         }
         switch (state)
         {
@@ -676,9 +885,14 @@ static PyObject* pa_set_sink_input_mute(pa *self,PyObject *args)
             if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
             {
                 pa_operation_unref(self->pa_op);
-				self->pa_op=NULL;
+                self->pa_op=NULL;
                 pa_context_disconnect(self->pa_ctx);
-                return 0;
+ 				self->pa_op=NULL;
+				self->pa_ctx=NULL;
+				self->pa_mlapi=NULL;
+				self->pa_ml=NULL;
+				pa_init_context(self);
+	            return Py_BuildValue("i",0);
             }
             break;
         default:
@@ -688,6 +902,86 @@ static PyObject* pa_set_sink_input_mute(pa *self,PyObject *args)
         pa_mainloop_iterate(self->pa_ml, 1, NULL);
     }
     return Py_BuildValue("i",0);
+}
+
+static PyObject* pa_get_sink_input_index_by_pid(pa *self,PyObject *args)
+{
+	if(!self)
+	{
+		fprintf(stderr,"NULL object pointer\n");
+		return Py_BuildValue("i",-1);
+	}
+	PyObject *dict=NULL,*tmp;
+	int i,l,index=-1;
+	pid_t kpid,pid=-1;
+
+	if(!PyArg_ParseTuple(args,"ii",&kpid,&i))
+	{
+		fprintf(stderr,"Expect a integer argument!\n");
+		return Py_BuildValue("i",-1);
+	}
+
+	if(!self->sink_inputs)
+	{
+		//empty sink_inputs slot yet,update it first
+		pa_get_sink_input_list(self);
+	}
+	if(!self->sink_inputs)
+	{
+		fprintf(stderr,"No sink inputs detected yet\n");
+		return Py_BuildValue("i",-1);
+	}
+
+	l=PyList_Size(self->sink_inputs);
+	for(i=0;i<l;i++)
+	{
+		dict=PyList_GetItem(self->sink_inputs,i);
+		tmp=PyDict_GetItemString(dict,"application.process.id");
+		pid=atoi(PyString_AsString(tmp));
+		if(kpid==pid && PyErr_Occurred()==NULL)
+		{
+			index=PyInt_AsLong(PyDict_GetItemString(dict,"index"));
+			return Py_BuildValue("i",index);
+		}
+	}
+
+	fprintf(stderr,"No matching pid detected\n");
+	return Py_BuildValue("i",-1);
+}
+
+static PyObject* pa_set_sink_input_mute_by_pid(pa *self,PyObject *args)
+{
+	PyObject *index_py;
+	PyObject *tuple=NULL;
+	int index,pid,mute;
+	if(!self)
+	{
+		fprintf(stderr,"NULL object pointer\n");
+		Py_INCREF(Py_False);
+		return Py_False;
+	}
+
+	if(!PyArg_ParseTuple(args,"ii",&pid,&mute))
+	{
+		fprintf(stderr,"pid and mute value are expeted\n");
+		Py_INCREF(Py_False);
+		return Py_False;
+	}
+
+	index_py=pa_get_sink_input_index_by_pid(self,args);
+	index=PyInt_AsLong(index_py);
+	if(index!=-1)
+	{
+		tuple=PyTuple_New(2);
+		PyTuple_SetItem(tuple,0,Py_BuildValue("i",index));
+		PyTuple_SetItem(tuple,1,Py_BuildValue("i",mute));
+		return pa_set_sink_input_mute(self,tuple);
+	}
+	else
+	{
+		Py_INCREF(Py_False);
+		return Py_False;
+	}
 }
 
 static PyTypeObject paType=
@@ -766,6 +1060,30 @@ void pa_state_cb(pa_context *c, void *userdata)
         *pa_ready = 1;
         break;
     }
+}
+
+void pa_serverinfo_cb(pa_context *c, const pa_server_info*i, void *userdata)
+{
+    pa *self= userdata;
+    PyObject *dict=PyDict_New();
+
+    if(!dict)
+    {
+        fprintf(stderr,"ERROR in PyDict_New()");
+        return;
+    }
+
+    PyDict_SetItemString(dict,"user_name",PYSTRING_FROMSTRING(i->user_name));
+    PyDict_SetItemString(dict,"host_name",PYSTRING_FROMSTRING(i->host_name));
+    PyDict_SetItemString(dict,"server_version",PYSTRING_FROMSTRING(i->server_version));
+    PyDict_SetItemString(dict,"server_name",PYSTRING_FROMSTRING(i->server_name));
+    PyDict_SetItemString(dict,"default_sink_name",PYSTRING_FROMSTRING(i->default_sink_name));
+	PyDict_SetItemString(dict,"default_source_name",PYSTRING_FROMSTRING(i->default_source_name));
+	PyDict_SetItemString(dict,"cookie",PyInt_FromLong(i->cookie));
+
+    PyList_Append(self->server_info,dict);
+
+	return;
 }
 
 // pa_mainloop will call this function when it's ready to tell us about a sink.
@@ -879,22 +1197,22 @@ void pa_sourcelist_cb(pa_context *c, const pa_source_info *l, int eol, void *use
     printf("source------------------------------\n");
 }
 void pa_clientlist_cb(pa_context *c, const pa_client_info *i,
-		int eol, void *userdata)
+                      int eol, void *userdata)
 {
-	if (eol > 0)
-	{
-		printf("End of sinks\n");
+    if (eol > 0)
+    {
+        printf("End of sinks\n");
         return;
     }
     const char *prop_key = NULL;
     void *prop_state = NULL;
 
     pa *self= userdata;
-	if(!self)
-	{
-		fprintf(stderr,"NULL object pointer\n");
-		return;
-	}
+    if(!self)
+    {
+        fprintf(stderr,"NULL object pointer\n");
+        return;
+    }
     PyObject *dict=PyDict_New();
     if(!dict)
     {
@@ -902,34 +1220,34 @@ void pa_clientlist_cb(pa_context *c, const pa_client_info *i,
         return;
     }
 
-	if(!self->clients)
-	{
-		fprintf(stderr,"error in PyDict_New()\n");
-		return;
-	}
+    if(!self->clients)
+    {
+        fprintf(stderr,"error in PyDict_New()\n");
+        return;
+    }
 
     PyDict_SetItemString(dict,"index",PyInt_FromLong(i->index));
     PyDict_SetItemString(dict,"name",PYSTRING_FROMSTRING(i->name));
-	PyDict_SetItemString(dict,"module",PyInt_FromLong(i->owner_module));
+    PyDict_SetItemString(dict,"module",PyInt_FromLong(i->owner_module));
     PyDict_SetItemString(dict,"driver",PYSTRING_FROMSTRING(i->driver));
-	while((prop_key=pa_proplist_iterate(i->proplist,&prop_state)))
-	{
-		PyDict_SetItemString(dict,prop_key,
-				PYSTRING_FROMSTRING(pa_proplist_gets(i->proplist,prop_key)));
-	}
+    while((prop_key=pa_proplist_iterate(i->proplist,&prop_state)))
+    {
+        PyDict_SetItemString(dict,prop_key,
+                             PYSTRING_FROMSTRING(pa_proplist_gets(i->proplist,prop_key)));
+    }
     PyList_Append(self->clients,dict);
-	return;
+    return;
 }
 
 void pa_sink_input_cb(pa_context *c, const pa_sink_input_info *i, int eol, void *userdata)
 {
     PyObject *dict=PyDict_New();
-	pa *self=userdata;
-	if(!self)
-	{
-		fprintf(stderr,"NULL object pointer\n");
-		return;
-	}
+    pa *self=userdata;
+    if(!self)
+    {
+        fprintf(stderr,"NULL object pointer\n");
+        return;
+    }
     if (eol > 0)
     {
         printf("End of sink inputs list.\n");
@@ -943,7 +1261,7 @@ void pa_sink_input_cb(pa_context *c, const pa_sink_input_info *i, int eol, void 
     char buf[1024];
     const char *prop_key = NULL;
     void *prop_state = NULL;
-	printf("format_info: %s\n", pa_format_info_snprint(buf, 1000, i->format));
+    printf("format_info: %s\n", pa_format_info_snprint(buf, 1000, i->format));
     printf("------------------------------\n");
     printf("index: %d\n", i->index);
     printf("name: %s\n", i->name);
@@ -961,7 +1279,7 @@ void pa_sink_input_cb(pa_context *c, const pa_sink_input_info *i, int eol, void 
     printf("has_volume: %d\n", i->has_volume);
     printf("volume_writable: %d\n", i->volume_writable);
 
-	PyDict_SetItemString(dict,"index",PyInt_FromLong(i->index));
+    PyDict_SetItemString(dict,"index",PyInt_FromLong(i->index));
     PyDict_SetItemString(dict,"name",PYSTRING_FROMSTRING(i->name));
     PyDict_SetItemString(dict,"module",PyInt_FromLong(i->owner_module));
     PyDict_SetItemString(dict,"client",PyInt_FromLong(i->client));
@@ -977,7 +1295,7 @@ void pa_sink_input_cb(pa_context *c, const pa_sink_input_info *i, int eol, void 
     {
         PyDict_SetItemString(dict,prop_key, PYSTRING_FROMSTRING(pa_proplist_gets(i->proplist, prop_key)));
     }
-	PyList_Append(self->sink_inputs,dict);
+    PyList_Append(self->sink_inputs,dict);
     while ((prop_key=pa_proplist_iterate(i->proplist, &prop_state)))
     {
         printf("  %s: %s\n", prop_key, pa_proplist_gets(i->proplist, prop_key));
@@ -989,7 +1307,7 @@ void pa_sink_input_cb(pa_context *c, const pa_sink_input_info *i, int eol, void 
 void pa_source_output_cb(
     pa_context *c,const pa_source_output_info *o,int eol,void *userdata)
 {
-	pa *self=userdata;
+    pa *self=userdata;
     PyObject *dict=PyDict_New();
     if (eol > 0)
     {
@@ -1018,18 +1336,18 @@ void pa_source_output_cb(
     {
         PyDict_SetItemString(dict,prop_key, PYSTRING_FROMSTRING(pa_proplist_gets(o->proplist, prop_key)));
     }
-	PyList_Append(self->source_outputs,dict);
+    PyList_Append(self->source_outputs,dict);
 }
 
 void pa_cards_cb(pa_context *c, const pa_card_info*i, int eol, void *userdata)
 {
-	pa *self=userdata;
+    pa *self=userdata;
     PyObject *dict=PyDict_New();
-	if(!self)
-	{
-		fprintf(stderr,"NULL object pointer\n");
-		return;
-	}
+    if(!self)
+    {
+        fprintf(stderr,"NULL object pointer\n");
+        return;
+    }
     if (eol > 0)
     {
         printf("End of source outputs list.\n");
@@ -1046,14 +1364,14 @@ void pa_cards_cb(pa_context *c, const pa_card_info*i, int eol, void *userdata)
     PyDict_SetItemString(dict,"name",PYSTRING_FROMSTRING(i->name));
     PyDict_SetItemString(dict,"module",PyInt_FromLong(i->owner_module));
     PyDict_SetItemString(dict,"driver",PYSTRING_FROMSTRING(i->driver));
-	PyDict_SetItemString(dict,"n_profiles",PyInt_FromLong(i->n_profiles));
+    PyDict_SetItemString(dict,"n_profiles",PyInt_FromLong(i->n_profiles));
 
     while ((prop_key=pa_proplist_iterate(i->proplist, &prop_state)))
     {
         PyDict_SetItemString(dict,prop_key, PYSTRING_FROMSTRING(pa_proplist_gets(i->proplist, prop_key)));
     }
-	PyList_Append(self->cards,dict);
-	return;
+    PyList_Append(self->cards,dict);
+    return;
 }
 
 void pa_set_sink_input_mute_cb(pa_context *c,int success,void *userdata)
@@ -1065,6 +1383,23 @@ void pa_set_sink_input_mute_cb(pa_context *c,int success,void *userdata)
     }
 }
 
+PyObject *pa_dict_from_cvolume(pa_cvolume *c)
+{
+	PyObject *dict=PyDict_New();
+	if(!dict)
+	{
+		fprintf(stderr,"PyDict_New() error\n");
+		return NULL;
+	}
+	int i,l=c->channels;
+	char key[MAX_KEY];
+	for(i=0;i<l;i++)
+	{
+		sprintf(key,"channel %d",i);
+		PyDict_SetItemString(dict,key,PyInt_FromLong(c->values[i]));
+	}
+	return dict;
+}
 
 
 //END of higher level apis for manipulating pulseaudio
@@ -1075,19 +1410,19 @@ initpulseaudio(void)
     PyObject *m;
     if(PyType_Ready(&paType)<0)
     {
-		fprintf(stderr,"Type not ready\n");
+        fprintf(stderr,"Type not ready\n");
         return;
     }
     m = Py_InitModule3("pulseaudio",module_methods,
                        "Python bindings for pulseaudio of version 4.0.0.");
-	//the second parameter,must be in accordance to its module name,file name
+    //the second parameter,must be in accordance to its module name,file name
 
     if(m==NULL)
-	{
-		fprintf(stderr,"Py_InitModule3 error\n");
+    {
+        fprintf(stderr,"Py_InitModule3 error\n");
         return;
-	}
-	printf("initializing...\n");
+    }
+    printf("initializing...\n");
     Py_INCREF(&paType);
     PyModule_AddObject(m,"pa",(PyObject *)&paType);
 }
