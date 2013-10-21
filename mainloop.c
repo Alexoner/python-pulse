@@ -309,39 +309,58 @@ static PyMethodDef pa_methods[]=
 {
 	{
 		"get_server_info",(PyCFunction)pa_get_server_info,METH_VARARGS,
+		"get_server_info()\n"
 		"get the server information."
 	},
     {
         "get_cards",(PyCFunction)pa_get_card_list,METH_VARARGS,
+		"get_cards()\n"
         "return the information about all the cards."
     },
     {
         "get_devicelist",(PyCFunction)pa_get_device_list,METH_VARARGS,
+		"get_devicelist()\n"
         "Return lists of sinks and sources"
     },
     {
         "get_clients",(PyCFunction)pa_get_client_list,METH_VARARGS,
+		"get_clients()\n"
         "return the list of clients"
     },
     {
         "get_sink_inputs",(PyCFunction)pa_get_sink_input_list,METH_VARARGS,
+		"get_sink_inputs()\n"
         "return the list of sink inputs."
     },
     {
         "get_source_outputs",(PyCFunction)pa_get_source_output_list,METH_VARARGS,
+		"get_source_outputs()\n"
         "return the list of source outputs."
     },
     {
         "set_sink_input_mute",(PyCFunction)pa_set_sink_input_mute,METH_VARARGS,
+		"set_sink_input_mute(index,mute)\n"
         "set or unset the sink input mute."
     },
 	{
 		"get_sink_input_index_by_pid",(PyCFunction)pa_get_sink_input_index_by_pid,METH_VARARGS,
+		"get_sink_input_index_by_pid(pid)\n"
 		"get a sink input's index by its process id"
 	},
 	{
 		"set_sink_input_mute_by_pid",(PyCFunction)pa_set_sink_input_mute_by_pid,METH_VARARGS,
+		"set_sink_input_mute_by_pid(pid,mute)\n"
 		"set a sink input mute by pid"
+	},
+	{
+		"set_sink_input_volume",(PyCFunction)pa_set_sink_input_volume,METH_VARARGS,
+		"set_sink_input_volume(index,volume)\n"
+		"set a sink input's volume.volume can be a integer or a percent float number"
+	},
+	{
+		"inc_sink_input_volume",(PyCFunction)pa_inc_sink_input_volume,METH_VARARGS,
+		"inc_sink_input_volume(index,volume)\n"
+		"increase a sink input's volume."
 	},
     {NULL}  /* Sentinel */
 };
@@ -847,7 +866,7 @@ static PyObject *pa_get_source_output_list(pa *self)
     return Py_BuildValue(0);
 }
 
-static PyObject* pa_set_sink_input_mute(pa *self,PyObject *args)
+static PyObject *pa_set_sink_input_mute(pa *self,PyObject *args)
 {
     int pa_ready = 0;
     int state = 0;
@@ -872,10 +891,10 @@ static PyObject* pa_set_sink_input_mute(pa *self,PyObject *args)
         if (pa_ready == 2)
         {
             pa_context_disconnect(self->pa_ctx);
- 				self->pa_op=NULL;
-				self->pa_ctx=NULL;
-				self->pa_mlapi=NULL;
-				self->pa_ml=NULL;
+			self->pa_op=NULL;
+			self->pa_ctx=NULL;
+			self->pa_mlapi=NULL;
+			self->pa_ml=NULL;
 			return Py_BuildValue("i",-1);
         }
         switch (state)
@@ -888,7 +907,6 @@ static PyObject* pa_set_sink_input_mute(pa *self,PyObject *args)
             if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
             {
                 pa_operation_unref(self->pa_op);
-                self->pa_op=NULL;
                 pa_context_disconnect(self->pa_ctx);
  				self->pa_op=NULL;
 				self->pa_ctx=NULL;
@@ -989,9 +1007,10 @@ static PyObject* pa_set_sink_input_mute_by_pid(pa *self,PyObject *args)
 
 static PyObject *pa_set_sink_input_volume(pa *self,PyObject *args)
 {
+	int pa_ready=0;//CRITICAL!,initialize pa_ready to zero
+	int state=0;
 	int index,volume;
 	float tmp=0;
-	int pa_ready,state=0;
 	pa_cvolume cvolume;
 	if(!self)
 	{
@@ -1038,10 +1057,10 @@ static PyObject *pa_set_sink_input_volume(pa *self,PyObject *args)
         if (pa_ready == 2)
         {
             pa_context_disconnect(self->pa_ctx);
- 				self->pa_op=NULL;
-				self->pa_ctx=NULL;
-				self->pa_mlapi=NULL;
-				self->pa_ml=NULL;
+			self->pa_op=NULL;
+			self->pa_ctx=NULL;
+			self->pa_mlapi=NULL;
+			self->pa_ml=NULL;
 			return Py_BuildValue("i",-1);
         }
         switch (state)
@@ -1055,7 +1074,6 @@ static PyObject *pa_set_sink_input_volume(pa *self,PyObject *args)
             if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
             {
                 pa_operation_unref(self->pa_op);
-                self->pa_op=NULL;
                 pa_context_disconnect(self->pa_ctx);
  				self->pa_op=NULL;
 				self->pa_ctx=NULL;
