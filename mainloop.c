@@ -1,5 +1,5 @@
 /*************************************************************************
-    > File Name: /home/administrator/Documents/python/pulse/pypa/mainloop.c
+    > File Name: mainloop.c
     > Author: onerhao
     > Mail: haodu@hustunique.com
     > Created Time: 2013年10月11日 星期五 14时46分06秒
