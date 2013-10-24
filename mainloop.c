@@ -299,15 +299,15 @@ void pa_get_sinklist_cb(pa_context *c, const pa_sink_info *l, int eol, void *use
 void pa_get_sink_volume_cb(pa_context *c, const pa_sink_info *i, int eol, void *userdata);
 void pa_get_sourcelist_cb(pa_context *c, const pa_source_info *l,
                       int eol, void *userdata);
-void pa_get_source_info_cb(pa_context *c,const pa_source_info l,int eol,void *userdata);
+void pa_get_source_volume_cb(pa_context *c,const pa_source_info *l,int eol,void *userdata);
 void pa_get_clientlist_cb(pa_context *c, const pa_client_info*i,
                       int eol, void *userdata);
 void pa_get_sink_input_list_cb(pa_context *c,const pa_sink_input_info *i,
                       int eol,void *userdata);
 void pa_get_sink_input_info_cb(pa_context *c, const pa_sink_input_info *i, int eol, void *userdata);
 void pa_get_sink_input_volume_cb(pa_context *c, const pa_sink_input_info *i, int eol, void *userdata);
-void pa_get_source_output_cb(pa_context *c, const pa_source_output_info *i,
-                         int eol, void *userdata);
+void pa_get_source_output_cb(pa_context *c, const pa_source_output_info *i, int eol, void *userdata);
+
 
 void pa_context_success_cb(pa_context *c,int success,void *userdata);
 void pa_set_sink_input_mute_cb(pa_context *c,int success,void *userdata);
@@ -354,6 +354,39 @@ static PyMethodDef pa_methods[]=
 		"get_source_outputs()\n"
         "return the list of source outputs."
     },
+	{
+		"set_sink_mute_by_index",(PyCFunction)pa_set_sink_mute_by_index,METH_VARARGS,
+		"set_sink_mute_by_index(index,mute)\n"
+		"toggle sink mute switch."
+	},
+	{
+		"set_sink_volume_by_index",(PyCFunction)pa_set_sink_volume_by_index,METH_VARARGS,
+		"set_sink_volume_by_index(index,volume)\n"
+	},
+	{
+		"inc_sink_volume_by_index",(PyCFunction)pa_inc_sink_volume_by_index,METH_VARARGS,
+		"inc_sink_volume_by_index(index,inc)\n"
+	},
+	{
+		"dec_sink_volume_by_index",(PyCFunction)pa_dec_sink_volume_by_index,METH_VARARGS,
+		"dec_sinK_volume_by_index(index,dec)\n"
+	},
+	{
+		"set_source_mute_by_index",(PyCFunction)pa_set_source_mute_by_index,METH_VARARGS,
+		"set_source_mute_by_index(index,mute)\n"
+	},
+	{
+		"set_source_volume_by_index",(PyCFunction)pa_set_source_volume_by_index,METH_VARARGS,
+		"set_source_volume_by_index(index,volume)\n"
+	},
+	{
+		"inc_source_volume_by_index",(PyCFunction)pa_inc_source_volume_by_index,METH_VARARGS,
+		"inc_source_volume_by_index(index,inc)\n"
+	},
+	{
+		"dec_source_volume_by_index",(PyCFunction)pa_dec_source_volume_by_index,METH_VARARGS,
+		"dec_source_volume_by_index(index,dec)\n"
+	},
     {
         "set_sink_input_mute",(PyCFunction)pa_set_sink_input_mute,METH_VARARGS,
 		"set_sink_input_mute(index,mute)\n"
@@ -1035,6 +1068,7 @@ static PyObject *pa_set_sink_volume_by_index(pa *self,PyObject *args)
 	}
 
 	memset(&cvolume,0,sizeof(cvolume));
+	cvolume.channels=2;
 	pa_cvolume_set(&cvolume,cvolume.channels,volume);
 	if(!pa_cvolume_valid(&cvolume))
 	{
@@ -1108,8 +1142,8 @@ static PyObject *pa_inc_sink_volume_by_index(pa *self,PyObject *args)
 		if(!PyArg_ParseTuple(args,"If",&index,&tmp))
 		{
 			fprintf(stderr,"Invalid sink input index and volume increasement are expected\n");
-			Py_INCREF(Py_True);
-			return Py_True;
+			Py_INCREF(Py_False);
+			return Py_False;
 		}
 		else
 		{
@@ -1172,7 +1206,7 @@ static PyObject *pa_inc_sink_volume_by_index(pa *self,PyObject *args)
 				}
 				else
 				{
-					pa_context_set_sink_input_volume(self->pa_ctx,index,&cvolume,
+					pa_context_set_sink_volume_by_index(self->pa_ctx,index,&cvolume,
 							pa_set_sink_input_volume_cb,self);
 					state++;
 					break;
@@ -1257,8 +1291,8 @@ static PyObject *pa_dec_sink_volume_by_index(pa *self,PyObject *args)
         switch (state)
         {
         case 0:
-			self->pa_op=pa_context_get_sink_input_info(self->pa_ctx,index,
-					pa_get_sink_input_volume_cb,&cvolume);
+			self->pa_op=pa_context_get_sink_info_by_index(self->pa_ctx,index,
+					pa_get_sink_volume_cb,&cvolume);
             state++;
             break;
 		case 1:
@@ -1267,7 +1301,7 @@ static PyObject *pa_dec_sink_volume_by_index(pa *self,PyObject *args)
 				pa_cvolume_dec(&cvolume,volume);
 				if(!pa_cvolume_valid(&cvolume))
 				{
-					fprintf(stderr,"Invalid increased volume\n");
+					fprintf(stderr,"Invalid decreased volume\n");
 					pa_operation_unref(self->pa_op);
 					pa_context_disconnect(self->pa_ctx);
 					pa_context_unref(self->pa_ctx);
@@ -1282,7 +1316,7 @@ static PyObject *pa_dec_sink_volume_by_index(pa *self,PyObject *args)
 				}
 				else
 				{
-					pa_context_set_sink_input_volume(self->pa_ctx,index,&cvolume,
+					pa_context_set_sink_volume_by_index(self->pa_ctx,index,&cvolume,
 							pa_set_sink_input_volume_cb,self);
 					state++;
 					break;
@@ -1355,7 +1389,8 @@ static PyObject *pa_set_source_mute_by_index(pa *self,PyObject *args)
         switch (state)
         {
         case 0:
-            self->pa_op=pa_context_set_sink_input_mute(self->pa_ctx,index,mute,pa_set_sink_input_mute_cb,self);
+            self->pa_op=pa_context_set_source_mute_by_index(self->pa_ctx,index,mute,
+					pa_context_success_cb,self);
             state++;
             break;
         case 1:
@@ -1444,7 +1479,7 @@ static PyObject *pa_set_source_volume_by_index(pa *self,PyObject *args)
         switch (state)
         {
         case 0:
-            self->pa_op=pa_context_set_sink_volume_by_index(self->pa_ctx,index,&cvolume,
+            self->pa_op=pa_context_set_source_volume_by_index(self->pa_ctx,index,&cvolume,
 					pa_context_success_cb,self);
             state++;
             break;
@@ -1499,8 +1534,6 @@ static PyObject *pa_inc_source_volume_by_index(pa *self,PyObject *args)
 
 	pa_cvolume cvolume;
 	memset(&cvolume,0,sizeof(cvolume));
-	cvolume.channels=2;
-	pa_cvolume_inc(&cvolume,volume);
 	if(!pa_cvolume_valid(&cvolume))
 	{//check if the volume increase is valid
 		fprintf(stderr,"Invalid volume!\n");
@@ -1535,15 +1568,14 @@ static PyObject *pa_inc_source_volume_by_index(pa *self,PyObject *args)
         switch (state)
         {
         case 0:
-			self->pa_op=pa_context_get_sink_input_info(self->pa_ctx,index,
-					pa_get_sink_input_volume_cb,&cvolume);
+			self->pa_op=pa_context_get_source_info_by_index(self->pa_ctx,index,
+					pa_get_source_volume_cb,&cvolume);
             state++;
             break;
 		case 1:
 			if(pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
 			{
 				pa_cvolume_inc(&cvolume,volume);
-				printf("1187,cvolume: %d,%d,%d\n",volume,cvolume.values[0],cvolume.values[1]);
 				if(!pa_cvolume_valid(&cvolume))
 				{
 					fprintf(stderr,"Invalid increased volume\n");
@@ -1561,8 +1593,8 @@ static PyObject *pa_inc_source_volume_by_index(pa *self,PyObject *args)
 				}
 				else
 				{
-					pa_context_set_sink_input_volume(self->pa_ctx,index,&cvolume,
-							pa_set_sink_input_volume_cb,self);
+					pa_context_set_source_volume_by_index(self->pa_ctx,index,&cvolume,
+							pa_context_success_cb,self);
 					state++;
 					break;
 				}
@@ -1646,8 +1678,8 @@ static PyObject *pa_dec_source_volume_by_index(pa *self,PyObject *args)
         switch (state)
         {
         case 0:
-			self->pa_op=pa_context_get_sink_input_info(self->pa_ctx,index,
-					pa_get_sink_input_volume_cb,&cvolume);
+			self->pa_op=pa_context_get_source_info_by_index(self->pa_ctx,index,
+					pa_get_source_volume_cb,&cvolume);
             state++;
             break;
 		case 1:
@@ -1671,7 +1703,7 @@ static PyObject *pa_dec_source_volume_by_index(pa *self,PyObject *args)
 				}
 				else
 				{
-					pa_context_set_sink_input_volume(self->pa_ctx,index,&cvolume,
+					pa_context_set_source_volume_by_index(self->pa_ctx,index,&cvolume,
 							pa_set_sink_input_volume_cb,self);
 					state++;
 					break;
@@ -1705,97 +1737,6 @@ static PyObject *pa_dec_source_volume_by_index(pa *self,PyObject *args)
     return Py_True;
 }
 
-static PyObject *pa_set_sink_volume_by_index(pa *self,PyObject *args)
-{
-	int pa_ready=0;//CRITICAL!,initialize pa_ready to zero
-	int state=0;
-	int index,volume;
-	float tmp=0;
-	pa_cvolume cvolume;
-	if(!self)
-	{
-		fprintf(stderr,"NULL object pointer\n");
-		Py_INCREF(Py_False);
-		return Py_False;
-	}
-
-	if(!PyArg_ParseTuple(args,"II",&index,&volume))
-	{
-		if(!PyArg_ParseTuple(args,"If",&index,&tmp))
-		{
-			fprintf(stderr,"invalid index and volume value are expeted\n");
-			Py_INCREF(Py_False);
-			return Py_False;
-		}
-		else
-		{
-			volume=tmp*PA_VOLUME_NORM;
-		}
-	}
-
-
-	memset(&cvolume,0,sizeof(cvolume));
-	pa_cvolume_set(&cvolume,cvolume.channels,volume);
-	if(!pa_cvolume_valid(&cvolume))
-	{
-		fprintf(stderr,"Invalid volume %d provided,please choose another one\n",volume);
-		Py_INCREF(Py_False);
-		return Py_False;
-	}
-
-    pa_context_connect(self->pa_ctx, NULL, 0, NULL);
-    pa_context_set_state_callback(self->pa_ctx, pa_state_cb, &pa_ready);
-
-    for (;;)
-    {
-        if (pa_ready == 0)
-        {
-            pa_mainloop_iterate(self->pa_ml, 1, NULL);
-            continue;
-        }
-        if (pa_ready == 2)
-        {
-            pa_context_disconnect(self->pa_ctx);
-			pa_context_unref(self->pa_ctx);
-			pa_mainloop_free(self->pa_ml);
-			self->pa_op=NULL;
-			self->pa_ctx=NULL;
-			self->pa_mlapi=NULL;
-			self->pa_ml=NULL;
-			return Py_BuildValue("i",-1);
-        }
-        switch (state)
-        {
-        case 0:
-            self->pa_op=pa_context_set_sink_volume_by_index(self->pa_ctx,index,&cvolume,
-					pa_context_success_cb,self);
-            state++;
-            break;
-        case 1:
-            if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
-            {
-                pa_operation_unref(self->pa_op);
-                pa_context_disconnect(self->pa_ctx);
-				pa_context_unref(self->pa_ctx);
-				pa_mainloop_free(self->pa_ml);
- 				self->pa_op=NULL;
-				self->pa_ctx=NULL;
-				self->pa_mlapi=NULL;
-				self->pa_ml=NULL;
-				pa_init_context(self);
-	            return Py_BuildValue("i",0);
-            }
-            break;
-        default:
-            fprintf(stderr, "in state %d\n", state);
-            return Py_BuildValue("i",-1);
-        }
-        pa_mainloop_iterate(self->pa_ml, 1, NULL);
-    }
-
-	Py_INCREF(Py_True);
-	return Py_True;
-}
 
 static PyObject *pa_set_sink_input_mute(pa *self,PyObject *args)
 {
@@ -2454,7 +2395,7 @@ void pa_get_sourcelist_cb(pa_context *c, const pa_source_info *l, int eol, void 
     printf("source------------------------------\n");
 }
 
-void pa_get_source_volume_cb(pa_context *c, const pa_sink_info *i, int eol, void *userdata)
+void pa_get_source_volume_cb(pa_context *c, const pa_source_info *i, int eol, void *userdata)
 {
 	if(eol>0)
 	{
