@@ -292,6 +292,11 @@ static PyObject *pa_set_sink_input_volume(pa *self,PyObject *args);
 static PyObject *pa_inc_sink_input_volume(pa *self,PyObject *args);
 static PyObject *pa_dec_sink_input_volume(pa *self,PyObject *args);
 
+static PyObject *pa_set_source_output_mute(pa *self,PyObject *args);
+static PyObject *pa_set_source_output_volume(pa *self,PyObject *args);
+static PyObject *pa_inc_source_output_volume(pa *self,PyObject *args);
+static PyObject *pa_dec_source_output_volume(pa *self,PyObject *args);
+
 void pa_state_cb(pa_context *c,void *userdata);
 void pa_get_serverinfo_cb(pa_context *c, const pa_server_info*i, void *userdata);
 void pa_get_cards_cb(pa_context *c, const pa_card_info*i, int eol, void *userdata);
@@ -306,12 +311,14 @@ void pa_get_sink_input_list_cb(pa_context *c,const pa_sink_input_info *i,
                       int eol,void *userdata);
 void pa_get_sink_input_info_cb(pa_context *c, const pa_sink_input_info *i, int eol, void *userdata);
 void pa_get_sink_input_volume_cb(pa_context *c, const pa_sink_input_info *i, int eol, void *userdata);
-void pa_get_source_output_cb(pa_context *c, const pa_source_output_info *i, int eol, void *userdata);
+void pa_get_source_output_list_cb(pa_context *c, const pa_source_output_info *i, int eol, void *userdata);
+void pa_get_source_output_volume_cb(pa_context *c, const pa_source_output_info *o,int eol,void *userdata);
 
 
 void pa_context_success_cb(pa_context *c,int success,void *userdata);
 void pa_set_sink_input_mute_cb(pa_context *c,int success,void *userdata);
 void pa_set_sink_input_volume_cb(pa_context *c, int success, void *userdata);
+
 
 
 //utils
@@ -416,6 +423,22 @@ static PyMethodDef pa_methods[]=
 		"dec_sink_input_volume",(PyCFunction)pa_dec_sink_input_volume,METH_VARARGS,
 		"dec_sink_input_volume(index,dec)\n"
 		"decrease a sink input's volume by dec."
+	},
+	{
+		"set_source_output_mute",(PyCFunction)pa_set_source_output_mute,METH_VARARGS,
+		"set_source_output_mute(index,mute).\n"
+	},
+	{
+		"set_source_output_volume",(PyCFunction)pa_set_source_output_volume,METH_VARARGS,
+		"set_source_output_volume(index,volume).\n"
+	},
+	{
+		"inc_source_output_volume",(PyCFunction)pa_inc_source_output_volume,METH_VARARGS,
+		"inc_source_output_volume(index,inc).\n"
+	},
+	{
+		"dec_source_output_volume",(PyCFunction)pa_dec_source_output_volume,METH_VARARGS,
+		"dec_source_output_volume(index,dec).\n"
 	},
     {NULL,NULL,0,NULL}  /* Sentinel */
 };
@@ -903,7 +926,8 @@ static PyObject *pa_get_source_output_list(pa *self)
         switch (state)
         {
         case 0:
-            self->pa_op = pa_context_get_source_output_info_list(self->pa_ctx, pa_get_source_output_cb, self);
+            self->pa_op = pa_context_get_source_output_info_list(self->pa_ctx,
+					pa_get_source_output_list_cb, self);
             state++;
             break;
         case 1:
@@ -2163,6 +2187,397 @@ static PyObject *pa_dec_sink_input_volume(pa *self,PyObject *args)
     return Py_True;
 }
 
+
+static PyObject *pa_set_source_output_mute(pa *self,PyObject *args)
+{
+    int pa_ready = 0;
+    int state = 0;
+    int index,mute;
+
+    if(!PyArg_ParseTuple(args,"ii",&index,&mute))
+    {
+        fprintf(stderr,"sink input index and mute flag are needed\n");
+        return NULL;
+    }
+
+    pa_context_connect(self->pa_ctx, NULL, 0, NULL);
+    pa_context_set_state_callback(self->pa_ctx, pa_state_cb, &pa_ready);
+
+    for (;;)
+    {
+        if (pa_ready == 0)
+        {
+            pa_mainloop_iterate(self->pa_ml, 1, NULL);
+            continue;
+        }
+        if (pa_ready == 2)
+        {
+            pa_context_disconnect(self->pa_ctx);
+			pa_context_unref(self->pa_ctx);
+			pa_mainloop_free(self->pa_ml);
+			self->pa_op=NULL;
+			self->pa_ctx=NULL;
+			self->pa_mlapi=NULL;
+			self->pa_ml=NULL;
+			pa_init_context(self);
+
+			return Py_BuildValue("i",-1);
+        }
+        switch (state)
+        {
+        case 0:
+            self->pa_op=pa_context_set_source_output_mute(self->pa_ctx,index,mute,
+					pa_context_success_cb,self);
+            state++;
+            break;
+        case 1:
+            if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
+            {
+                pa_operation_unref(self->pa_op);
+                pa_context_disconnect(self->pa_ctx);
+				pa_context_unref(self->pa_ctx);
+				pa_mainloop_free(self->pa_ml);
+ 				self->pa_op=NULL;
+				self->pa_ctx=NULL;
+				self->pa_mlapi=NULL;
+				self->pa_ml=NULL;
+				pa_init_context(self);
+	            return Py_BuildValue("i",0);
+            }
+            break;
+        default:
+            fprintf(stderr, "in state %d\n", state);
+            return Py_BuildValue("i",-1);
+        }
+        pa_mainloop_iterate(self->pa_ml, 1, NULL);
+    }
+    return Py_BuildValue("i",0);
+}
+
+static PyObject *pa_set_source_output_volume(pa *self,PyObject *args)
+{
+	int pa_ready=0;//CRITICAL!,initialize pa_ready to zero
+	int state=0;
+	int index,volume;
+	float tmp=0;
+	pa_cvolume cvolume;
+	if(!self)
+	{
+		fprintf(stderr,"NULL object pointer\n");
+		Py_INCREF(Py_False);
+		return Py_False;
+	}
+
+	if(!PyArg_ParseTuple(args,"II",&index,&volume))
+	{
+		if(!PyArg_ParseTuple(args,"If",&index,&tmp))
+		{
+			fprintf(stderr,"invalid index and volume value are expeted\n");
+			Py_INCREF(Py_False);
+			return Py_False;
+		}
+		else
+		{
+			volume=tmp*PA_VOLUME_NORM;
+		}
+	}
+
+
+	memset(&cvolume,0,sizeof(cvolume));
+	cvolume.channels=2;
+	pa_cvolume_set(&cvolume,cvolume.channels,volume);
+	if(!pa_cvolume_valid(&cvolume))
+	{
+		fprintf(stderr,"Invalid volume %d provided,please choose another one\n",volume);
+		Py_INCREF(Py_False);
+		return Py_False;
+	}
+
+    pa_context_connect(self->pa_ctx, NULL, 0, NULL);
+    pa_context_set_state_callback(self->pa_ctx, pa_state_cb, &pa_ready);
+
+    for (;;)
+    {
+        if (pa_ready == 0)
+        {
+            pa_mainloop_iterate(self->pa_ml, 1, NULL);
+            continue;
+        }
+        if (pa_ready == 2)
+        {
+            pa_context_disconnect(self->pa_ctx);
+			pa_context_unref(self->pa_ctx);
+			pa_mainloop_free(self->pa_ml);
+			self->pa_op=NULL;
+			self->pa_ctx=NULL;
+			self->pa_mlapi=NULL;
+			self->pa_ml=NULL;
+			return Py_BuildValue("i",-1);
+        }
+        switch (state)
+        {
+        case 0:
+            self->pa_op=pa_context_set_source_output_volume(self->pa_ctx,index,&cvolume,
+					pa_context_success_cb,self);
+            state++;
+            break;
+        case 1:
+            if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
+            {
+                pa_operation_unref(self->pa_op);
+                pa_context_disconnect(self->pa_ctx);
+				pa_context_unref(self->pa_ctx);
+				pa_mainloop_free(self->pa_ml);
+ 				self->pa_op=NULL;
+				self->pa_ctx=NULL;
+				self->pa_mlapi=NULL;
+				self->pa_ml=NULL;
+				pa_init_context(self);
+	            return Py_BuildValue("i",0);
+            }
+            break;
+        default:
+            fprintf(stderr, "in state %d\n", state);
+            return Py_BuildValue("i",-1);
+        }
+        pa_mainloop_iterate(self->pa_ml, 1, NULL);
+    }
+
+
+	Py_INCREF(Py_True);
+	return Py_True;
+}
+
+static PyObject *pa_inc_source_output_volume(pa *self,PyObject *args)
+{
+    int pa_ready = 0;
+    int state = 0;
+	int index;
+	int volume=0;
+	float tmp=0;
+
+	if(!PyArg_ParseTuple(args,"II",&index,&volume))
+	{
+		if(!PyArg_ParseTuple(args,"If",&index,&tmp))
+		{
+			fprintf(stderr,"Invalid sink input index and volume increasement are expected\n");
+			Py_INCREF(Py_True);
+			return Py_True;
+		}
+		else
+		{
+			volume=tmp*PA_VOLUME_NORM;
+		}
+	}
+
+
+	pa_cvolume cvolume;
+	memset(&cvolume,0,sizeof(cvolume));
+	cvolume.channels=2;
+	pa_cvolume_inc(&cvolume,volume);
+	if(!pa_cvolume_valid(&cvolume))
+	{//check if the volume increase is valid
+		fprintf(stderr,"Invalid volume!\n");
+		Py_INCREF(Py_True);
+		return Py_True;
+	}
+
+
+    pa_context_connect(self->pa_ctx, NULL, 0, NULL);
+    pa_context_set_state_callback(self->pa_ctx, pa_state_cb, &pa_ready);
+
+    for (;;)
+    {
+        if (pa_ready == 0)
+        {
+            pa_mainloop_iterate(self->pa_ml, 1, NULL);
+            continue;
+        }
+        if (pa_ready == 2)
+        {
+            pa_context_disconnect(self->pa_ctx);
+			pa_context_unref(self->pa_ctx);
+			pa_mainloop_free(self->pa_ml);
+            self->pa_op=NULL;
+            self->pa_ctx=NULL;
+            self->pa_mlapi=NULL;
+            self->pa_ml=NULL;
+			pa_init_context(self);
+            Py_INCREF(Py_False);
+            return Py_False;
+        }
+        switch (state)
+        {
+        case 0:
+			self->pa_op=pa_context_get_source_output_info(self->pa_ctx,index,
+					pa_get_source_output_volume_cb,&cvolume);
+            state++;
+            break;
+		case 1:
+			if(pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
+			{
+				pa_cvolume_inc(&cvolume,volume);
+				if(!pa_cvolume_valid(&cvolume))
+				{
+					fprintf(stderr,"Invalid increased volume\n");
+					pa_operation_unref(self->pa_op);
+					pa_context_disconnect(self->pa_ctx);
+					pa_context_unref(self->pa_ctx);
+					pa_mainloop_free(self->pa_ml);
+					self->pa_op=NULL;
+					self->pa_ctx=NULL;
+					self->pa_ml=NULL;
+					self->pa_mlapi=NULL;
+					pa_init_context(self);
+					Py_INCREF(Py_False);
+					return Py_False;
+				}
+				else
+				{
+					pa_context_set_source_output_volume(self->pa_ctx,index,&cvolume,
+							pa_context_success_cb,self);
+					state++;
+					break;
+				}
+			}
+			break;
+        case 2:
+            if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
+            {
+                pa_operation_unref(self->pa_op);
+                pa_context_disconnect(self->pa_ctx);
+				pa_context_unref(self->pa_ctx);
+				pa_mainloop_free(self->pa_ml);
+ 				self->pa_op=NULL;
+				self->pa_ctx=NULL;
+				self->pa_mlapi=NULL;
+				self->pa_ml=NULL;
+				pa_init_context(self);
+				Py_INCREF(Py_True);
+				return Py_True;
+			}
+			break;
+        default:
+            fprintf(stderr, "in state %d\n", state);
+            Py_INCREF(Py_True);
+            return Py_True;
+        }
+        pa_mainloop_iterate(self->pa_ml, 1, NULL);
+    }
+    Py_INCREF(Py_True);
+    return Py_True;
+}
+
+static PyObject *pa_dec_source_output_volume(pa *self,PyObject *args)
+{
+    int pa_ready = 0;
+    int state = 0;
+	int index;
+	int volume=0;
+	float tmp=0;
+
+	if(!PyArg_ParseTuple(args,"II",&index,&volume))
+	{
+		if(!PyArg_ParseTuple(args,"If",&index,&tmp))
+		{
+			fprintf(stderr,"Valid sink input index and volume increasement are expected\n");
+			Py_INCREF(Py_True);
+			return Py_True;
+		}
+		else
+		{
+			volume=tmp*PA_VOLUME_NORM;
+		}
+	}
+
+
+	pa_cvolume cvolume;
+	memset(&cvolume,0,sizeof(cvolume));
+    pa_context_connect(self->pa_ctx, NULL, 0, NULL);
+    pa_context_set_state_callback(self->pa_ctx, pa_state_cb, &pa_ready);
+
+    for (;;)
+    {
+        if (pa_ready == 0)
+        {
+            pa_mainloop_iterate(self->pa_ml, 1, NULL);
+            continue;
+        }
+        if (pa_ready == 2)
+        {
+            pa_context_disconnect(self->pa_ctx);
+			pa_context_unref(self->pa_ctx);
+			pa_mainloop_free(self->pa_ml);
+            self->pa_op=NULL;
+            self->pa_ctx=NULL;
+            self->pa_mlapi=NULL;
+            self->pa_ml=NULL;
+			pa_init_context(self);
+            Py_INCREF(Py_False);
+            return Py_False;
+        }
+        switch (state)
+        {
+        case 0:
+			self->pa_op=pa_context_get_source_output_info(self->pa_ctx,index,
+					pa_get_source_output_volume_cb,&cvolume);
+            state++;
+            break;
+		case 1:
+			if(pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
+			{
+				pa_cvolume_dec(&cvolume,volume);
+				if(!pa_cvolume_valid(&cvolume))
+				{
+					fprintf(stderr,"Invalid increased volume\n");
+					pa_operation_unref(self->pa_op);
+					pa_context_disconnect(self->pa_ctx);
+					pa_context_unref(self->pa_ctx);
+					pa_mainloop_free(self->pa_ml);
+					self->pa_op=NULL;
+					self->pa_ctx=NULL;
+					self->pa_ml=NULL;
+					self->pa_mlapi=NULL;
+					pa_init_context(self);
+					Py_INCREF(Py_False);
+					return Py_False;
+				}
+				else
+				{
+					pa_context_set_source_output_volume(self->pa_ctx,index,&cvolume,
+							pa_set_sink_input_volume_cb,self);
+					state++;
+					break;
+				}
+			}
+			break;
+        case 2:
+            if (pa_operation_get_state(self->pa_op) == PA_OPERATION_DONE)
+            {
+                pa_operation_unref(self->pa_op);
+                pa_context_disconnect(self->pa_ctx);
+				pa_context_unref(self->pa_ctx);
+				pa_mainloop_free(self->pa_ml);
+ 				self->pa_op=NULL;
+				self->pa_ctx=NULL;
+				self->pa_mlapi=NULL;
+				self->pa_ml=NULL;
+				pa_init_context(self);
+				Py_INCREF(Py_True);
+				return Py_True;
+			}
+			break;
+        default:
+            fprintf(stderr, "in state %d\n", state);
+            Py_INCREF(Py_True);
+            return Py_True;
+        }
+        pa_mainloop_iterate(self->pa_ml, 1, NULL);
+    }
+    Py_INCREF(Py_True);
+    return Py_True;
+}
+
 static PyTypeObject paType=
 {
     PyObject_HEAD_INIT(NULL)
@@ -2536,8 +2951,8 @@ void pa_get_sink_input_volume_cb(pa_context *c, const pa_sink_input_info *i, int
 	return;
 }
 
-void pa_get_source_output_cb(
-    pa_context *c,const pa_source_output_info *o,int eol,void *userdata)
+void pa_get_source_output_list_cb(pa_context *c,
+		const pa_source_output_info *o,int eol,void *userdata)
 {
     pa *self=userdata;
     PyObject *dict=PyDict_New();
@@ -2570,6 +2985,22 @@ void pa_get_source_output_cb(
         PyDict_SetItemString(dict,prop_key, PYSTRING_FROMSTRING(pa_proplist_gets(o->proplist, prop_key)));
     }
     PyList_Append(self->source_outputs,dict);
+}
+
+void pa_get_source_output_volume_cb(pa_context *c,
+		const pa_source_output_info *o,int eol,void *userdata)
+{
+	if(eol>0)
+	{
+		return;
+	}
+	if(!userdata)
+	{
+		return;
+	}
+	pa_cvolume *cvolume=userdata;
+	memcpy(cvolume,&(o->volume),sizeof(pa_cvolume));
+	return;
 }
 
 void pa_get_cards_cb(pa_context *c, const pa_card_info*i, int eol, void *userdata)
